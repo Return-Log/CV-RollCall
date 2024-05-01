@@ -1,9 +1,20 @@
 import sys
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox
+from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QSplashScreen
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
+
+
+class StartupScreen(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("CV-RollCall")  # 设置窗口标题
+        self.resize(400, 200)  # 设置窗口大小
+        layout = QVBoxLayout()  # 创建垂直布局
+        label = QLabel("加载中...", self)  # 创建加载中标签
+        layout.addWidget(label)  # 将标签添加到布局中
+        self.setLayout(layout)  # 设置布局
 
 
 class FaceRecognitionWidget(QWidget):
@@ -37,9 +48,9 @@ class FaceRecognitionWidget(QWidget):
         self.start_button = QPushButton("开始")  # 创建开始按钮
         self.start_button.clicked.connect(self.start_detection)  # 连接开始按钮的点击信号与开始检测函数
 
-        self.pause_button = QPushButton("停止")  # 创建暂停按钮
-        self.pause_button.clicked.connect(self.pause_detection)  # 连接暂停按钮的点击信号与暂停检测函数
-        self.pause_button.setEnabled(False)  # 设置暂停按钮不可用
+        self.pause_button = QPushButton("停止")  # 创建停止按钮
+        self.pause_button.clicked.connect(self.pause_detection)  # 连接停止按钮的点击信号与停止检测函数
+        self.pause_button.setEnabled(False)  # 设置停止按钮不可用
 
         # 图片显示区域
         self.image_label = QLabel()  # 创建显示图片的标签
@@ -50,7 +61,7 @@ class FaceRecognitionWidget(QWidget):
         layout.addWidget(self.image_label)  # 将图片标签添加到布局中
         layout.addWidget(self.camera_combobox)  # 将摄像头选择下拉框添加到布局中
         layout.addWidget(self.start_button)  # 将开始按钮添加到布局中
-        layout.addWidget(self.pause_button)  # 将暂停按钮添加到布局中
+        layout.addWidget(self.pause_button)  # 将停止按钮添加到布局中
 
         self.setLayout(layout)  # 设置窗口布局
 
@@ -80,17 +91,17 @@ class FaceRecognitionWidget(QWidget):
 
         self.timer.stop()  # 暂停定时器
         self.start_button.setEnabled(True)  # 启用开始按钮
-        self.pause_button.setEnabled(False)  # 禁用暂停按钮
+        self.pause_button.setEnabled(False)  # 禁用停止按钮
 
     def start_detection(self):
         self.timer.start(100)  # 开始定时器
         self.start_button.setEnabled(False)  # 禁用开始按钮
-        self.pause_button.setEnabled(True)  # 启用暂停按钮
+        self.pause_button.setEnabled(True)  # 启用停止按钮
 
     def pause_detection(self):
         self.timer.stop()  # 暂停定时器
         self.start_button.setEnabled(True)  # 启用开始按钮
-        self.pause_button.setEnabled(False)  # 禁用暂停按钮
+        self.pause_button.setEnabled(False)  # 禁用停止按钮
 
     def update_frame(self):
         ret, frame = self.camera.read()  # 读取摄像头帧
@@ -159,6 +170,17 @@ class FaceRecognitionWidget(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+
+    # 创建启动界面
+    splash_pix = QPixmap('splash_image.png')  # 使用自定义的启动界面图片，替换'splash_image.png'为你的图片路径
+    splash = QSplashScreen(splash_pix)
+    splash.show()
+    app.processEvents()
+
     window = FaceRecognitionWidget()
     window.show()
+
+    # 关闭启动界面
+    splash.finish(window)
+
     sys.exit(app.exec_())
