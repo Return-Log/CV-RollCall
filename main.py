@@ -1,165 +1,177 @@
 import sys
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QSplashScreen
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, QSettings
+from mtcnn import MTCNN
+from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QSplashScreen, QAction, \
+    QMessageBox, QMainWindow
 
 
-class StartupScreen(QWidget):
+class FaceRecognitionWidget(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CV-RollCall")  # 设置窗口标题
-        self.resize(400, 200)  # 设置窗口大小
-        layout = QVBoxLayout()  # 创建垂直布局
-        label = QLabel("加载中...", self)  # 创建加载中标签
-        layout.addWidget(label)  # 将标签添加到布局中
-        self.setLayout(layout)  # 设置布局
+        self.setWindowTitle("CV-RollCall")
+        self.resize(800, 480)
 
+        # 加载设置
+        self.settings = QSettings("settings.ini", QSettings.IniFormat)
+        self.detection_active = False  # 跟踪检测状态
+        self.init_ui()  # 初始化界面
 
-class FaceRecognitionWidget(QWidget):
-    def __init__(self):
-        super().__init__()
+    def init_ui(self):
+        # 添加菜单栏
+        menubar = self.menuBar()
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self.about_dialog)
+        menubar.addAction(about_action)
 
-        self.setWindowTitle("CV-RollCall")  # 设置窗口标题
-        self.resize(800, 480)  # 设置窗口大小
+        # 模型选择
+        self.model_selector = QComboBox()
+        self.model_selector.addItem("MTCNN", "mtcnn")
+        self.model_selector.addItem("CNN", "cnn")
+        self.model_selector.currentIndexChanged.connect(self.select_model)
 
-        # 加载预训练的人脸检测模型
-        self.face_model = cv2.dnn.readNetFromCaffe("models/deploy.prototxt",
-                                                   "models/res10_300x300_ssd_iter_140000_fp16.caffemodel")
+        self.face_model = None
+        self.select_model(0)
 
         # 摄像头选择
-        self.camera_combobox = QComboBox()  # 创建摄像头选择下拉框
-        self.populate_cameras()  # 填充摄像头列表
-        self.camera_combobox.currentIndexChanged.connect(self.select_camera)  # 连接选择摄像头的信号与槽函数
+        self.camera_combobox = QComboBox()
+        self.populate_cameras()
+        self.camera_combobox.currentIndexChanged.connect(self.select_camera)
 
-        # 摄像头
-        self.camera = cv2.VideoCapture(0)  # 打开摄像头
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1080)  # 设置摄像头帧宽度
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 设置摄像头帧高度
-        self.frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))  # 获取帧宽度
-        self.frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))  # 获取帧高度
+        # 打开摄像头
+        self.camera = cv2.VideoCapture(0)
+        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1080)
+        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        self.frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # 定时器
-        self.timer = QTimer()  # 创建定时器
-        self.timer.timeout.connect(self.update_frame)  # 连接定时器超时信号与更新帧函数
+        # 定时器用于更新帧
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
 
-        # 添加按钮
-        self.start_button = QPushButton("开始")  # 创建开始按钮
-        self.start_button.clicked.connect(self.start_detection)  # 连接开始按钮的点击信号与开始检测函数
+        # 显示摄像头帧的标签
+        self.image_label = QLabel()
+        self.image_label.setFixedSize(self.frame_width, self.frame_height)
 
-        self.pause_button = QPushButton("停止")  # 创建停止按钮
-        self.pause_button.clicked.connect(self.pause_detection)  # 连接停止按钮的点击信号与停止检测函数
-        self.pause_button.setEnabled(False)  # 设置停止按钮不可用
+        # 开始和暂停按钮
+        self.start_button = QPushButton("开始")
+        self.start_button.clicked.connect(self.start_detection)
 
-        # 图片显示区域
-        self.image_label = QLabel()  # 创建显示图片的标签
-        self.image_label.setFixedSize(self.frame_width, self.frame_height)  # 设置标签大小
+        self.pause_button = QPushButton("停止")
+        self.pause_button.clicked.connect(self.pause_detection)
+        self.pause_button.setEnabled(False)
 
         # 设置布局
-        layout = QVBoxLayout()  # 创建垂直布局
-        layout.addWidget(self.image_label)  # 将图片标签添加到布局中
-        layout.addWidget(self.camera_combobox)  # 将摄像头选择下拉框添加到布局中
-        layout.addWidget(self.start_button)  # 将开始按钮添加到布局中
-        layout.addWidget(self.pause_button)  # 将停止按钮添加到布局中
+        layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        layout.addWidget(self.camera_combobox)
+        layout.addWidget(self.model_selector)
+        layout.addWidget(self.start_button)
+        layout.addWidget(self.pause_button)
 
-        self.setLayout(layout)  # 设置窗口布局
+        widget = QWidget()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        # 加载设置
+        self.load_settings()
+
+    def about_dialog(self):
+        about_text = "CV-RollCall\n\n版本: 1.0\n\nGitHub仓库\n\n许可证\n\n© 2024 CV-RollCall Technologies"
+        QMessageBox.about(self, "关于", about_text)
+
+    def select_model(self, index):
+        model_type = self.model_selector.itemData(index)
+        if model_type == "mtcnn":
+            self.face_model = MTCNN()
+        elif model_type == "cnn":
+            self.face_model = cv2.dnn.readNetFromCaffe("models/deploy.prototxt",
+                                                       "models/res10_300x300_ssd_iter_140000_fp16.caffemodel")
 
     def populate_cameras(self):
-        camera_list = []  # 存储摄像头设备名称列表
+        camera_list = []
         index = 0
         while True:
             camera = cv2.VideoCapture(index)
             if not camera.isOpened():
                 break
-            else:
-                ret, _ = camera.read()
-                if ret:
-                    camera_name = f"摄像头 {index}"  # 生成摄像头名称
-                    camera_list.append(camera_name)  # 将摄像头名称添加到列表中
+            ret, _ = camera.read()
+            if ret:
+                camera_name = f"摄像头 {index}"
+                camera_list.append(camera_name)
             index += 1
         for camera_name in camera_list:
-            self.camera_combobox.addItem(camera_name)  # 将摄像头名称添加到下拉框中
+            self.camera_combobox.addItem(camera_name)
 
     def select_camera(self):
-        camera_index = self.camera_combobox.currentIndex()  # 获取选择的摄像头索引
-        self.camera = cv2.VideoCapture(camera_index)  # 打开选择的摄像头
+        # 释放当前摄像头资源
+        self.camera.release()
 
-        # 设置摄像头帧宽度和高度
+        camera_index = self.camera_combobox.currentIndex()
+        self.camera = cv2.VideoCapture(camera_index)
+
+        # 设置输出画面的大小为1080x720
         self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1080)
         self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-        self.timer.stop()  # 暂停定时器
-        self.start_button.setEnabled(True)  # 启用开始按钮
-        self.pause_button.setEnabled(False)  # 禁用停止按钮
+        # 重新获取帧的大小
+        self.frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # 设置图像标签的大小为输出画面大小
+        self.image_label.setFixedSize(self.frame_width, self.frame_height)
+
+        # 停止定时器
+        self.timer.stop()
+
+        # 开始定时器以更新帧
+        self.start_live_view()
+
+    def start_live_view(self):
+        if not self.timer.isActive():
+            self.timer.start(30)
+        self.start_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
 
     def start_detection(self):
-        self.timer.start(100)  # 开始定时器
-        self.start_button.setEnabled(False)  # 禁用开始按钮
-        self.pause_button.setEnabled(True)  # 启用停止按钮
+        self.timer.start(100)
+        self.start_button.setEnabled(False)
+        self.pause_button.setEnabled(True)
 
     def pause_detection(self):
-        self.timer.stop()  # 暂停定时器
-        self.start_button.setEnabled(True)  # 启用开始按钮
-        self.pause_button.setEnabled(False)  # 禁用停止按钮
+        self.timer.stop()
+        self.start_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
 
     def update_frame(self):
-        ret, frame = self.camera.read()  # 读取摄像头帧
+        ret, frame = self.camera.read()
         if ret:
-            h, w = frame.shape[:2]  # 获取帧高度和宽度
+            # 根据选择的模型进行人脸检测
+            if isinstance(self.face_model, MTCNN):
+                result = self.face_model.detect_faces(frame)
+                bounding_boxes = [face['box'] for face in result] if result else []
+            else:  # CNN模型检测逻辑
+                h, w = frame.shape[:2]
+                blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+                self.face_model.setInput(blob)
+                detections = self.face_model.forward()
+                bounding_boxes = [detections[0, 0, i, 3:7] * np.array([w, h, w, h]) for i in
+                                  range(0, detections.shape[2]) if detections[0, 0, i, 2] > 0.5]
 
-            # 准备用于人脸检测的图像
-            blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
-
-            # 通过网络进行人脸检测
-            self.face_model.setInput(blob)
-            detections = self.face_model.forward()
-
-            # 初始化标记
-            red_box_index = None
-            green_box_indices = []
-
-            # 遍历检测到的人脸
-            for i in range(0, detections.shape[2]):
-                confidence = detections[0, 0, i, 2]
-
-                # 过滤掉置信度较低的检测结果
-                if confidence > 0.3:
-                    # 计算边界框的坐标
-                    box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                    (startX, startY, endX, endY) = box.astype("int")
-
-                    # 标记所有检测到的人脸使用绿框
-                    green_box_indices.append(i)
-
-            # 如果有检测到人脸，随机选择一个使用红框标记
-            if green_box_indices:
-                red_box_index = np.random.choice(green_box_indices)
-
-            # 再次遍历检测到的人脸，绘制边界框
-            for i in range(0, detections.shape[2]):
-                confidence = detections[0, 0, i, 2]
-
-                # 过滤掉置信度较低的检测结果
-                if confidence > 0.3:
-                    # 计算边界框的坐标
-                    box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                    (startX, startY, endX, endY) = box.astype("int")
-
-                    # 根据是否是红框标记的人脸确定颜色
-                    if i == red_box_index:
-                        color = (0, 0, 255)  # 红色框标记
+            # 绘制检测到的人脸
+            if bounding_boxes:
+                red_box_index = np.random.choice(len(bounding_boxes))
+                for i, bbox in enumerate(bounding_boxes):
+                    if isinstance(bbox, np.ndarray):
+                        (startX, startY, endX, endY) = bbox.astype("int")
                     else:
-                        color = (0, 255, 0)  # 绿色框标记
+                        (x, y, width, height) = bbox
+                        startX, startY, endX, endY = x, y, x + width, y + height
+                    color = (0, 0, 255) if i == red_box_index else (0, 255, 0)
+                    cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
 
-                    # 在人脸周围绘制边界框
-                    border_thickness = 3  # 边框粗细
-                    box_increase = 8  # 边框增加的像素值
-
-                    cv2.rectangle(frame, (startX - box_increase, startY - box_increase),
-                                  (endX + box_increase, endY + box_increase), color, border_thickness)
-
-            # 将帧转换为 QImage
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             bytes_per_line = frame_rgb.shape[1] * 3
             convert_to_qt_format = QImage(frame_rgb.data, self.frame_width, self.frame_height, bytes_per_line,
@@ -167,20 +179,47 @@ class FaceRecognitionWidget(QWidget):
             p = QPixmap.fromImage(convert_to_qt_format)
             self.image_label.setPixmap(p)
 
+    def load_settings(self):
+        # 加载上次使用的摄像头索引
+        camera_index = self.settings.value("camera_index", defaultValue=0, type=int)
+        self.camera_combobox.setCurrentIndex(camera_index)
+
+        # 加载上次使用的模型
+        model_index = self.settings.value("model_index", defaultValue=0, type=int)
+        self.model_selector.setCurrentIndex(model_index)
+        self.select_model(model_index)
+
+        # 加载窗口位置
+        geometry = self.settings.value("geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        else:
+            # 设置默认窗口位置和大小
+            self.setGeometry(100, 100, 800, 480)
+
+    def save_settings(self):
+        # 保存选定的摄像头索引
+        self.settings.setValue("camera_index", self.camera_combobox.currentIndex())
+
+        # 保存选定的模型索引
+        self.settings.setValue("model_index", self.model_selector.currentIndex())
+
+        # 保存窗口位置
+        self.settings.setValue("geometry", self.saveGeometry())
+
+    def closeEvent(self, event):
+        self.save_settings()
+        super().closeEvent(event)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-
-    # 创建启动界面
-    splash_pix = QPixmap('splash_image.png')  # 使用自定义的启动界面图片，替换'splash_image.png'为你的图片路径
+    splash_pix = QPixmap('splash_image.png')
     splash = QSplashScreen(splash_pix)
     splash.show()
-    app.processEvents()
-
+    app.processEvents()  # 确保splash界面能够立即显示
     window = FaceRecognitionWidget()
     window.show()
-
-    # 关闭启动界面
     splash.finish(window)
-
     sys.exit(app.exec_())
+
