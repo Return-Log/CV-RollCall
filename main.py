@@ -79,7 +79,8 @@ class FaceRecognitionWidget(QMainWindow):
         self.load_settings()
 
     def about_dialog(self):
-        about_text = "CV-RollCall\n\n版本: 1.0\n\nGitHub仓库\n\n许可证\n\n© 2024 CV-RollCall Technologies"
+        about_text = ("CV-RollCall\n\n版本: v0.2\n\nGitHub仓库\nhttps://github.com/Return-Log/CV-RollCall\n\n许可证: "
+                      "AGPL-3.0\n\nCopyright © 2024 Log. All rights reserved.")
         QMessageBox.about(self, "关于", about_text)
 
     def select_model(self, index):
