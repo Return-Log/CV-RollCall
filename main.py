@@ -2,10 +2,10 @@ import sys
 import cv2
 import numpy as np
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import QTimer, QSettings
+from PyQt5.QtCore import QTimer, QSettings, Qt
 from mtcnn import MTCNN
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QSplashScreen, QAction, \
-    QMessageBox, QMainWindow
+from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QMainWindow, \
+    QMessageBox, QAction, QSplashScreen
 
 
 class FaceRecognitionWidget(QMainWindow):
@@ -31,6 +31,7 @@ class FaceRecognitionWidget(QMainWindow):
         self.model_selector.addItem("MTCNN", "mtcnn")
         self.model_selector.addItem("CNN", "cnn")
         self.model_selector.currentIndexChanged.connect(self.select_model)
+        self.model_selector.setStyleSheet("background-color: #ffffff; border: 2px solid #4CAF50; border-radius: 12px;")
 
         self.face_model = None
         self.select_model(0)
@@ -39,6 +40,7 @@ class FaceRecognitionWidget(QMainWindow):
         self.camera_combobox = QComboBox()
         self.populate_cameras()
         self.camera_combobox.currentIndexChanged.connect(self.select_camera)
+        self.camera_combobox.setStyleSheet("background-color: #ffffff; border: 2px solid #4CAF50; border-radius: 12px;")
 
         # 打开摄像头
         self.camera = cv2.VideoCapture(0)
@@ -53,19 +55,32 @@ class FaceRecognitionWidget(QMainWindow):
 
         # 显示摄像头帧的标签
         self.image_label = QLabel()
-        self.image_label.setFixedSize(self.frame_width, self.frame_height)
+        self.image_label.setAlignment(Qt.AlignCenter)
+
+        # 显示人脸数的标签
+        self.face_count_label = QLabel("人脸数：0")
 
         # 开始和暂停按钮
         self.start_button = QPushButton("开始")
+        self.start_button.setStyleSheet("background-color: #4CAF50; border: none; color: white; padding: 10px 24px;"
+                                        "text-align: center; text-decoration: none; display: inline-block; font-size: 16px;"
+                                        "margin: 4px 2px; cursor: pointer; border-radius: 12px;")
         self.start_button.clicked.connect(self.start_detection)
 
         self.pause_button = QPushButton("停止")
+        self.pause_button.setStyleSheet("background-color: #FF5733; border: none; color: white; padding: 10px 24px;"
+                                         "text-align: center; text-decoration: none; display: inline-block; font-size: 16px;"
+                                         "margin: 4px 2px; cursor: pointer; border-radius: 12px;")
         self.pause_button.clicked.connect(self.pause_detection)
-        self.pause_button.setEnabled(False)
 
         # 设置布局
         layout = QVBoxLayout()
-        layout.addWidget(self.image_label)
+        layout.addWidget(self.image_label, 1)  # 1 表示伸缩因子为 1，使图像标签可以随窗口大小变化而等比例缩放
+        layout.addWidget(self.face_count_label)
+
+        # 添加伸缩项以填充空白空间
+        layout.addStretch()
+
         layout.addWidget(self.camera_combobox)
         layout.addWidget(self.model_selector)
         layout.addWidget(self.start_button)
@@ -78,8 +93,17 @@ class FaceRecognitionWidget(QMainWindow):
         # 加载设置
         self.load_settings()
 
+        # 初始状态下启用开始和停止按钮
+        self.start_button.setEnabled(True)
+        self.pause_button.setEnabled(True)
+
+    def resizeEvent(self, event):
+        # 在窗口大小变化时，重新调整图像标签的大小以保持比例
+        super().resizeEvent(event)
+        self.update_frame()
+
     def about_dialog(self):
-        about_text = ("CV-RollCall\n\n版本: v0.2\n\nGitHub仓库\nhttps://github.com/Return-Log/CV-RollCall\n\n许可证: "
+        about_text = ("CV-RollCall\n\n版本: v0.3\n\nGitHub仓库\nhttps://github.com/Return-Log/CV-RollCall\n\n许可证: "
                       "AGPL-3.0\n\nCopyright © 2024 Log. All rights reserved.")
         QMessageBox.about(self, "关于", about_text)
 
@@ -121,9 +145,6 @@ class FaceRecognitionWidget(QMainWindow):
         self.frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # 设置图像标签的大小为输出画面大小
-        self.image_label.setFixedSize(self.frame_width, self.frame_height)
-
         # 停止定时器
         self.timer.stop()
 
@@ -133,18 +154,17 @@ class FaceRecognitionWidget(QMainWindow):
     def start_live_view(self):
         if not self.timer.isActive():
             self.timer.start(30)
-        self.start_button.setEnabled(True)
-        self.pause_button.setEnabled(False)
+            self.detection_active = False  # 设置检测状态为 False
+            self.start_button.setEnabled(True)  # 启用开始按钮
+            self.pause_button.setEnabled(False)  # 禁用暂停按钮
 
     def start_detection(self):
         self.timer.start(100)
-        self.start_button.setEnabled(False)
-        self.pause_button.setEnabled(True)
+        self.detection_active = True
 
     def pause_detection(self):
         self.timer.stop()
-        self.start_button.setEnabled(True)
-        self.pause_button.setEnabled(False)
+        self.detection_active = False
 
     def update_frame(self):
         ret, frame = self.camera.read()
@@ -161,6 +181,9 @@ class FaceRecognitionWidget(QMainWindow):
                 bounding_boxes = [detections[0, 0, i, 3:7] * np.array([w, h, w, h]) for i in
                                   range(0, detections.shape[2]) if detections[0, 0, i, 2] > 0.5]
 
+            # 更新人脸数标签
+            self.face_count_label.setText(f"人脸数：{len(bounding_boxes)}")
+
             # 绘制检测到的人脸
             if bounding_boxes:
                 red_box_index = np.random.choice(len(bounding_boxes))
@@ -170,15 +193,35 @@ class FaceRecognitionWidget(QMainWindow):
                     else:
                         (x, y, width, height) = bbox
                         startX, startY, endX, endY = x, y, x + width, y + height
-                    color = (0, 0, 255) if i == red_box_index else (0, 255, 0)
-                    cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
 
+                    # 增加高度和宽度 5 像素
+                    startX -= 5
+                    startY -= 5
+                    endX += 5
+                    endY += 5
+
+                    # 调整边界，确保不超出图像范围
+                    startX = max(0, startX)
+                    startY = max(0, startY)
+                    endX = min(frame.shape[1] - 1, endX)
+                    endY = min(frame.shape[0] - 1, endY)
+
+                    # 加粗人脸框
+                    thickness = 2
+                    if i == red_box_index:
+                        thickness = 4
+                    color = (0, 0, 255) if i == red_box_index else (0, 255, 0)
+                    cv2.rectangle(frame, (startX, startY), (endX, endY), color, thickness)
+
+            # 调整图像大小以适应窗口
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            bytes_per_line = frame_rgb.shape[1] * 3
-            convert_to_qt_format = QImage(frame_rgb.data, self.frame_width, self.frame_height, bytes_per_line,
-                                          QImage.Format_RGB888)
-            p = QPixmap.fromImage(convert_to_qt_format)
-            self.image_label.setPixmap(p)
+            frame_qimage = QImage(frame_rgb.data, frame_rgb.shape[1], frame_rgb.shape[0], frame_rgb.strides[0],
+                                  QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(frame_qimage)
+
+            # 根据窗口大小调整图像大小
+            pixmap = pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.image_label.setPixmap(pixmap)
 
     def load_settings(self):
         # 加载上次使用的摄像头索引
@@ -218,9 +261,8 @@ if __name__ == '__main__':
     splash_pix = QPixmap('splash_image.png')
     splash = QSplashScreen(splash_pix)
     splash.show()
-    app.processEvents()  # 确保splash界面能够立即显示
+    app.processEvents()
     window = FaceRecognitionWidget()
     window.show()
     splash.finish(window)
     sys.exit(app.exec_())
-
