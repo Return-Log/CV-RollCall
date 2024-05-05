@@ -1,11 +1,38 @@
+"""
+https://github.com/Return-Log/CV-RollCall
+AGPL-3.0 license
+"""
+
 import sys
 import cv2
 import numpy as np
+import logging
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer, QSettings, Qt
 from mtcnn import MTCNN
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QComboBox, QMainWindow, \
     QMessageBox, QAction, QSplashScreen
+import os
+
+# 禁用 MTCNN 库的日志记录
+logging.getLogger('mtcnn').setLevel(logging.CRITICAL)
+
+# 创建一个空的日志记录器并设置级别为CRITICAL，这样可以阻止输出到控制台
+logger = logging.getLogger()
+logger.setLevel(logging.CRITICAL)
+
+
+class NullHandler(logging.Handler):
+    def emit(self, record):
+        pass
+
+
+logger.addHandler(NullHandler())
+
+# 在打包后的应用程序中禁用控制台输出
+if hasattr(sys, 'frozen'):
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
 
 
 class FaceRecognitionWidget(QMainWindow):
@@ -69,8 +96,8 @@ class FaceRecognitionWidget(QMainWindow):
 
         self.pause_button = QPushButton("停止")
         self.pause_button.setStyleSheet("background-color: #FF5733; border: none; color: white; padding: 10px 24px;"
-                                         "text-align: center; text-decoration: none; display: inline-block; font-size: 16px;"
-                                         "margin: 4px 2px; cursor: pointer; border-radius: 12px;")
+                                        "text-align: center; text-decoration: none; display: inline-block; font-size: 16px;"
+                                        "margin: 4px 2px; cursor: pointer; border-radius: 12px;")
         self.pause_button.clicked.connect(self.pause_detection)
 
         # 设置布局
@@ -110,7 +137,9 @@ class FaceRecognitionWidget(QMainWindow):
     def select_model(self, index):
         model_type = self.model_selector.itemData(index)
         if model_type == "mtcnn":
-            self.face_model = MTCNN()
+            # 修改路径以指定正确的位置
+            weights_path = "models/mtcnn_weights.npy"
+            self.face_model = MTCNN(weights_file=weights_path)
         elif model_type == "cnn":
             self.face_model = cv2.dnn.readNetFromCaffe("models/deploy.prototxt",
                                                        "models/res10_300x300_ssd_iter_140000_fp16.caffemodel")
